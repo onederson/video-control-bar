@@ -60,9 +60,20 @@ Extensão leve e privada (Manifest V3) para navegadores Chromium (**Brave, Chrom
 video-control-bar/
 ├── manifest.json   # Configuração Manifest V3, ícones, permissões e content scripts
 ├── content.js      # Controle de velocidade, atalhos D/S/R e selo visual
-├── controls.js     # Barra de controles flutuante em Shadow DOM e atalho C
+├── controls.js     # Barra de controles flutuante em Shadow DOM e atalho Alt+C
 ├── popup.html      # Interface do popup (tema claro/escuro automático)
 ├── popup.js        # Lógica do popup e alternância da barra por site
 ├── icons/          # Ícones PNG (16, 48 e 128 px)
+├── tests/          # Testes automatizados (node --test tests/controls.test.js)
 └── README.md       # Documentação
+```
+
+---
+
+## Testes
+
+Requer apenas Node.js (usa `node:test`, sem dependências externas):
+
+```bash
+node --test tests/controls.test.js
 ```
