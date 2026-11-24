@@ -40,6 +40,21 @@
   let rafId = null;
   let ultimoRect = '';
 
+  // Cache de estado visual para evitar reescrever DOM/SVG a cada frame (o que quebrava cliques).
+  let uiPlay = '';
+  let uiMute = '';
+  let uiFs = '';
+  let uiTempo = '';
+  let uiVel = '';
+  let uiVolPct = -1;
+  let uiSeekVal = '';
+
+  // Preferência de volume definida pelo usuário na barra (protege contra sites que resetam muted ao pausar).
+  let volUsuario = null; // { volume: number, muted: boolean }
+  let videosCache = [];
+  let ultimoScanVideos = 0;
+  let ultimoScanShadow = 0;
+
   const ICO = {
     play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
     pause: '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>',
@@ -53,12 +68,43 @@
     fsSair: '<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>'
   };
 
-  function listarVideos(raiz = document, lista = []) {
+  function buscarVideosShadow(raiz, lista) {
     raiz.querySelectorAll('video').forEach(v => lista.push(v));
     raiz.querySelectorAll('*').forEach(el => {
-      if (el.shadowRoot && el !== hostEl) listarVideos(el.shadowRoot, lista);
+      if (el.shadowRoot && el !== hostEl) buscarVideosShadow(el.shadowRoot, lista);
     });
     return lista;
+  }
+
+  function listarVideos(forcar = false) {
+    const agora = performance.now();
+    if (!forcar && videosCache.length && (agora - ultimoScanVideos) < 300) {
+      return videosCache;
+    }
+    ultimoScanVideos = agora;
+    const diretos = Array.from(document.querySelectorAll('video'));
+    if (diretos.length > 0) {
+      videosCache = diretos;
+      return videosCache;
+    }
+    if (forcar || (agora - ultimoScanShadow) > 1000) {
+      ultimoScanShadow = agora;
+      videosCache = buscarVideosShadow(document, []);
+    }
+    return videosCache;
+  }
+
+  function restaurarVolume(video, estado) {
+    if (!video || !estado) return;
+    const aplicar = () => {
+      if (!video.isConnected) return;
+      if (video.muted !== estado.muted) video.muted = estado.muted;
+      if (Math.abs(video.volume - estado.volume) > 0.01) video.volume = estado.volume;
+    };
+    aplicar();
+    queueMicrotask(aplicar);
+    setTimeout(aplicar, 60);
+    setTimeout(aplicar, 180);
   }
 
   function fmtTempo(seg) {
@@ -92,7 +138,7 @@
     const fs = document.fullscreenElement;
     if (fs) {
       if (fs.tagName === 'VIDEO') return fs;
-      const dentroFs = listarVideos(fs).find(v => {
+      const dentroFs = Array.from(fs.querySelectorAll('video')).find(v => {
         const r = v.getBoundingClientRect();
         return r.width >= 120 && r.height >= 80;
       });
@@ -101,6 +147,7 @@
 
     const candidatos = [];
     for (const v of listarVideos()) {
+      if (!v.isConnected) continue;
       const r = v.getBoundingClientRect();
       if (r.width < 120 || r.height < 80) continue;
       const area = areaVisivel(r);
@@ -262,7 +309,7 @@
         }
         button:hover { background: rgba(255, 255, 255, 0.14); opacity: 1; }
         button:active { transform: scale(0.92); }
-        button svg { width: 17px; height: 17px; fill: currentColor; display: block; }
+        button svg { width: 17px; height: 17px; fill: currentColor; display: block; pointer-events: none; }
 
         .skip svg { width: 16px; height: 16px; }
         .barra.compacta .skip { display: none; }
@@ -360,8 +407,10 @@
 
     btnPlay.addEventListener('click', () => {
       if (!alvo) return;
+      const volAntes = volUsuario || { volume: alvo.volume, muted: alvo.muted };
       if (alvo.paused || alvo.ended) alvo.play().catch(() => {});
       else alvo.pause();
+      restaurarVolume(alvo, volAntes);
       sincronizarEstado();
     });
 
@@ -403,7 +452,9 @@
       const novoTempo = frac * alvo.duration;
       try { alvo.currentTime = novoTempo; } catch (_) {}
       seekEl.style.setProperty('--prog', (frac * 100).toFixed(2) + '%');
-      tempoEl.textContent = `${fmtTempo(novoTempo)} / ${fmtTempo(alvo.duration)}`;
+      const txt = `${fmtTempo(novoTempo)} / ${fmtTempo(alvo.duration)}`;
+      uiTempo = txt;
+      tempoEl.textContent = txt;
     });
 
     btnMute.addEventListener('click', () => {
@@ -414,6 +465,7 @@
       } else {
         alvo.muted = true;
       }
+      volUsuario = { volume: alvo.volume, muted: alvo.muted };
       sincronizarEstado();
     });
 
@@ -425,6 +477,7 @@
       const v = Number(volEl.value) / 100;
       alvo.volume = v;
       alvo.muted = v === 0;
+      volUsuario = { volume: v, muted: v === 0 };
       sincronizarEstado();
     });
 
@@ -466,23 +519,41 @@
   function sincronizarEstado() {
     if (!alvo || !barraEl) return;
 
-    btnPlay.innerHTML = (alvo.paused || alvo.ended) ? ICO.play : ICO.pause;
+    const estadoPlay = (alvo.paused || alvo.ended) ? 'play' : 'pause';
+    if (estadoPlay !== uiPlay) {
+      uiPlay = estadoPlay;
+      btnPlay.innerHTML = ICO[estadoPlay];
+    }
 
     const dur = alvo.duration;
     const cur = alvo.currentTime || 0;
     if (dur === Infinity) {
-      tempoEl.textContent = 'AO VIVO';
+      if (uiTempo !== 'AO VIVO') {
+        uiTempo = 'AO VIVO';
+        tempoEl.textContent = 'AO VIVO';
+      }
       seekEl.disabled = true;
-      seekEl.value = '1000';
-      seekEl.style.setProperty('--prog', '100%');
-      seekEl.style.setProperty('--buf', '100%');
+      if (uiSeekVal !== '1000') {
+        uiSeekVal = '1000';
+        seekEl.value = '1000';
+        seekEl.style.setProperty('--prog', '100%');
+        seekEl.style.setProperty('--buf', '100%');
+      }
     } else if (Number.isFinite(dur) && dur > 0) {
       seekEl.disabled = false;
       if (!arrastando) {
         const frac = Math.min(1, Math.max(0, cur / dur));
-        seekEl.value = String(Math.round(frac * 1000));
-        seekEl.style.setProperty('--prog', (frac * 100).toFixed(2) + '%');
-        tempoEl.textContent = `${fmtTempo(cur)} / ${fmtTempo(dur)}`;
+        const sv = String(Math.round(frac * 1000));
+        if (sv !== uiSeekVal) {
+          uiSeekVal = sv;
+          seekEl.value = sv;
+          seekEl.style.setProperty('--prog', (frac * 100).toFixed(2) + '%');
+        }
+        const txt = `${fmtTempo(cur)} / ${fmtTempo(dur)}`;
+        if (txt !== uiTempo) {
+          uiTempo = txt;
+          tempoEl.textContent = txt;
+        }
       }
       let bufFim = 0;
       try {
@@ -495,20 +566,42 @@
       seekEl.style.setProperty('--buf', (Math.min(1, bufFim / dur) * 100).toFixed(2) + '%');
     } else {
       seekEl.disabled = true;
-      seekEl.value = '0';
-      seekEl.style.setProperty('--prog', '0%');
-      seekEl.style.setProperty('--buf', '0%');
-      tempoEl.textContent = '0:00 / 0:00';
+      if (uiSeekVal !== '0') {
+        uiSeekVal = '0';
+        seekEl.value = '0';
+        seekEl.style.setProperty('--prog', '0%');
+        seekEl.style.setProperty('--buf', '0%');
+      }
+      if (uiTempo !== '0:00 / 0:00') {
+        uiTempo = '0:00 / 0:00';
+        tempoEl.textContent = uiTempo;
+      }
     }
 
     const volEfetivo = alvo.muted ? 0 : alvo.volume;
-    btnMute.innerHTML = volEfetivo === 0 ? ICO.mudo : (volEfetivo < 0.5 ? ICO.volBaixo : ICO.volAlto);
+    const estadoMute = volEfetivo === 0 ? 'mudo' : (volEfetivo < 0.5 ? 'volBaixo' : 'volAlto');
+    if (estadoMute !== uiMute) {
+      uiMute = estadoMute;
+      btnMute.innerHTML = ICO[estadoMute];
+    }
     const volPct = Math.round(volEfetivo * 100);
-    if (!arrastando) volEl.value = String(volPct);
-    volEl.style.setProperty('--vol', volPct + '%');
+    if (!arrastando && volPct !== uiVolPct) {
+      uiVolPct = volPct;
+      volEl.value = String(volPct);
+      volEl.style.setProperty('--vol', volPct + '%');
+    }
 
-    btnVel.textContent = fmtVel(alvo.playbackRate || 1);
-    btnFs.innerHTML = document.fullscreenElement ? ICO.fsSair : ICO.fsEntrar;
+    const txtVel = fmtVel(alvo.playbackRate || 1);
+    if (txtVel !== uiVel) {
+      uiVel = txtVel;
+      btnVel.textContent = txtVel;
+    }
+
+    const estadoFs = document.fullscreenElement ? 'fsSair' : 'fsEntrar';
+    if (estadoFs !== uiFs) {
+      uiFs = estadoFs;
+      btnFs.innerHTML = ICO[estadoFs];
+    }
   }
 
   function posicionar() {
@@ -547,7 +640,10 @@
     if (novoAlvo !== alvo) {
       alvo = novoAlvo;
       ultimoRect = '';
-      if (alvo) acordarBarra();
+      if (alvo) {
+        if (volUsuario) restaurarVolume(alvo, volUsuario);
+        acordarBarra();
+      }
     }
     if (alvo) {
       montarHost();
@@ -579,13 +675,23 @@
     }
   }
 
+  // Preserva o volume escolhido na barra quando o site (ex.: Instagram) tenta mutar ao pausar/tocar.
+  for (const ev of ['pause', 'play']) {
+    document.addEventListener(ev, e => {
+      if (!habilitado || !volUsuario) return;
+      if (e.target instanceof HTMLVideoElement && e.target === alvo) {
+        restaurarVolume(e.target, volUsuario);
+      }
+    }, true);
+  }
+
   // Detecta hover sobre vídeos para acordar a barra mesmo quando oculta.
   document.addEventListener('pointermove', e => {
-    if (!habilitado) return;
-    if (sobreBarra) return;
+    if (!habilitado || sobreBarra) return;
     const x = e.clientX, y = e.clientY;
     let achou = null;
     for (const v of listarVideos()) {
+      if (!v.isConnected) continue;
       const r = v.getBoundingClientRect();
       if (r.width >= 120 && r.height >= 80 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
         achou = v;
@@ -612,7 +718,7 @@
   // Tecla C alterna a barra de controles para o site atual.
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.altKey || e.metaKey || !e.key) return;
-    if (e.key.toLowerCase() !== 'c' || digitando(e) || !listarVideos().length) return;
+    if (e.key.toLowerCase() !== 'c' || digitando(e) || !listarVideos(true).length) return;
     const proximo = !habilitado;
     mapaSites = { ...mapaSites, [hostAtual]: proximo };
     chrome.storage.sync.set({ barraSites: mapaSites });
