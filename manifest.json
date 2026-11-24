@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Video Control Bar",
+  "version": "1.2.0",
+  "description": "Controle exato de velocidade e barra completa (progresso, tempo, volume, PiP e tela cheia) para qualquer vídeo da web.",
+  "permissions": ["storage", "activeTab"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Video Control Bar",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js", "controls.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ]
+}
