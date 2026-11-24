@@ -49,8 +49,9 @@
   let uiVolPct = -1;
   let uiSeekVal = '';
 
-  // Preferência de volume definida pelo usuário na barra (protege contra sites que resetam muted ao pausar).
+  // Preferência de volume definida pelo usuário na barra ou no site (protege contra reset ao pausar).
   let volUsuario = null; // { volume: number, muted: boolean }
+  let restaurandoAte = 0;
   let videosCache = [];
   let ultimoScanVideos = 0;
   let ultimoScanShadow = 0;
@@ -96,6 +97,7 @@
 
   function restaurarVolume(video, estado) {
     if (!video || !estado) return;
+    restaurandoAte = performance.now() + 260;
     const aplicar = () => {
       if (!video.isConnected) return;
       if (video.muted !== estado.muted) video.muted = estado.muted;
@@ -675,7 +677,15 @@
     }
   }
 
-  // Preserva o volume escolhido na barra quando o site (ex.: Instagram) tenta mutar ao pausar/tocar.
+  // Acompanha mudanças de volume feitas pelo controle do próprio site fora da janela de restauração.
+  document.addEventListener('volumechange', e => {
+    if (!habilitado || !(e.target instanceof HTMLVideoElement)) return;
+    if (e.target !== alvo) return;
+    if (performance.now() < restaurandoAte) return;
+    volUsuario = { volume: e.target.volume, muted: e.target.muted };
+  }, true);
+
+  // Preserva o volume escolhido quando o site (ex.: Instagram) tenta mutar ao pausar/tocar.
   for (const ev of ['pause', 'play']) {
     document.addEventListener(ev, e => {
       if (!habilitado || !volUsuario) return;
@@ -715,9 +725,9 @@
     return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
   }
 
-  // Tecla C alterna a barra de controles para o site atual.
+  // Atalho Alt+C alterna a barra de controles para o site atual (não conflita com C de legendas no YouTube).
   document.addEventListener('keydown', e => {
-    if (e.ctrlKey || e.altKey || e.metaKey || !e.key) return;
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !e.key) return;
     if (e.key.toLowerCase() !== 'c' || digitando(e) || !listarVideos(true).length) return;
     const proximo = !habilitado;
     mapaSites = { ...mapaSites, [hostAtual]: proximo };

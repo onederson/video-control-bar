@@ -19,7 +19,7 @@ Extensão leve e privada (Manifest V3) para navegadores Chromium (**Brave, Chrom
 
 ### Barra de controles flutuante (por site)
 - **Ligada por padrão** em sites que ocultam controles nativos: `instagram.com`, `tiktok.com`, `threads.net` e `threads.com`.
-- **Desligada por padrão** nos demais sites (como YouTube) para não duplicar controles — com ativação em **1 clique** no popup ou pela tecla **C** em qualquer site.
+- **Desligada por padrão** nos demais sites (como YouTube) para não duplicar controles — com ativação em **1 clique** no popup ou pelo atalho **Alt+C** em qualquer site.
 - **Isolada em Shadow DOM:** não sofre conflito com o CSS do site e impede que camadas invisíveis (como no Instagram) bloqueiem cliques na barra de progresso ou no volume.
 - **Auto-ocultação inteligente:** some suavemente após 2,5s sem mexer o mouse enquanto o vídeo toca e reaparece ao passar o mouse sobre o vídeo ou pausar.
 - **Responsiva:** adapta-se automaticamente a vídeos verticais estreitos (Reels/Shorts) e funciona também em tela cheia.
@@ -35,7 +35,7 @@ Extensão leve e privada (Manifest V3) para navegadores Chromium (**Brave, Chrom
 | **D** | Aumenta a velocidade em `+0,5x` |
 | **S** | Reduz a velocidade em `−0,5x` |
 | **R** | Alterna entre `1x` e a última velocidade preferida (padrão `2x`) |
-| **C** | Liga ou desliga a barra de controles completa no site atual |
+| **Alt+C** | Liga ou desliga a barra de controles completa no site atual |
 
 ---
 
